@@ -1,0 +1,122 @@
+const express = require('express');
+const multer = require('multer');
+const { body, validationResult } = require('express-validator');
+const mysql = require('mysql');
+const path = require('path');
+
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+// Create a MySQL connection pool
+const pool = mysql.createPool({
+  host: 'localhost',
+  user: 'root',
+  password: '1212',
+  database: 'elocalhood'
+});
+
+// Set up multer storage for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, './uploads/');
+  },
+  filename: function (req, file, cb) {
+    cb(null, file.originalname);
+  }
+});
+
+const upload = multer({ storage: storage });
+
+// Middleware for parsing JSON request bodies
+app.use(express.json());
+
+// Validation middleware for Aadhar number
+const validateAadhar = (value) => {
+  if (!/^\d{12}$/.test(value)) {
+    throw new Error('Invalid Aadhar number');
+  }
+  return true;
+};
+
+// Validation middleware for Bank account number
+const validateBankAccount = (value) => {
+  if (!/^\d{9,18}$/.test(value)) {
+    throw new Error('Invalid bank account number');
+  }
+  return true;
+};
+
+// API endpoint to handle form submission
+app.post('/submitForm',
+  upload.fields([
+    { name: 'aadharFrontImage', maxCount: 1 },
+    { name: 'aadharBackImage', maxCount: 1 },
+    { name: 'passportPhoto', maxCount: 1 },
+    { name: 'qrCodeImage', maxCount: 1 }
+  ]),
+  [
+    body('fullname').trim().notEmpty().withMessage('Fullname is required'),
+    body('aadharNumber').trim().custom(validateAadhar),
+    body('bankAccountNumber').trim().custom(validateBankAccount),
+    //body('upiId').trim().isEmail().withMessage('Invalid UPI ID format')
+    body('upiId').trim().custom(value => {
+      if (!value.includes('@')) {
+          throw new Error('UPI ID must contain "@" symbol');
+      }
+      return true;
+    }
+    )
+      
+  
+  ],
+  (req, res) => {
+    // Check for validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    // All validations passed, process the form data
+    const { fullname, aadharNumber, bankAccountNumber, upiId } = req.body;
+    
+    // Check if aadharFrontImage is provided
+    const aadharFrontImage = req.files['aadharFrontImage'] && req.files['aadharFrontImage'].length > 0
+      ? req.files['aadharFrontImage'][0].path
+      : null;
+      
+    // Check if aadharBackImage is provided
+    const aadharBackImage = req.files['aadharBackImage'] && req.files['aadharBackImage'].length > 0
+      ? req.files['aadharBackImage'][0].path
+      : null;
+    
+    // Check if passportPhoto is provided
+    const passportPhoto = req.files['passportPhoto'] && req.files['passportPhoto'].length > 0
+      ? req.files['passportPhoto'][0].path
+      : null;
+    
+    // Check if qrCodeImage is provided
+    const qrCodeImage = req.files['qrCodeImage'] && req.files['qrCodeImage'].length > 0
+      ? req.files['qrCodeImage'][0].path
+      : null;
+
+    // Insert form data into MySQL database
+    pool.query(
+      'INSERT INTO aadhar (fullname, aadharNumber, bankAccountNumber, upiId, aadharFrontImage, aadharBackImage, passportPhoto, qrCodeImage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [fullname, aadharNumber, bankAccountNumber, upiId, aadharFrontImage, aadharBackImage, passportPhoto, qrCodeImage],
+      (error, results) => {
+        if (error) {
+          console.error('Error saving submission:', error);
+          return res.status(500).json({ error: 'Failed to save form submission' });
+        }
+        // Respond with success message
+        res.json({ message: 'Form submitted successfully' });
+      }
+    );
+  }
+);
+
+// Start the server
+app.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+});
