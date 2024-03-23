@@ -1,0 +1,56 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware to parse JSON bodies
+app.use(bodyParser.json());
+
+// Dummy database to store orders
+let orders = [];
+
+// API endpoint to accept an order
+app.post('/acceptOrder', (req, res) => {
+    const { orderNumber, orderType, quantity } = req.body;
+
+    // Validate request body
+    if (!orderNumber || !orderType || !quantity) {
+        return res.status(400).json({ error: 'Missing required fields in request body.' });
+    }
+
+    // Find the order in the database
+    const order = orders.find(order => order.orderNumber === orderNumber);
+    if (!order) {
+        return res.status(404).json({ error: 'Order not found.' });
+    }
+
+    // Update order status and send response
+    order.status = 'Accepted';
+    res.json({ message: 'Order accepted successfully.', order });
+});
+
+// API endpoint to reject an order
+app.post('/rejectOrder', (req, res) => {
+    const { orderNumber, orderType, quantity } = req.body;
+
+    // Validate request body
+    if (!orderNumber || !orderType || !quantity) {
+        return res.status(400).json({ error: 'Missing required fields in request body.' });
+    }
+
+    // Find the order in the database
+    const order = orders.find(order => order.orderNumber === orderNumber);
+    if (!order) {
+        return res.status(404).json({ error: 'Order not found.' });
+    }
+
+    // Update order status and send response
+    order.status = 'Rejected';
+    res.json({ message: 'Order rejected successfully.', order });
+});
+
+// Start the server
+app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+});
