@@ -4,7 +4,6 @@ const { body, validationResult } = require('express-validator');
 const mysql = require('mysql');
 const path = require('path');
 
-
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -47,72 +46,79 @@ const validateBankAccount = (value) => {
   return true;
 };
 
+// Validation middleware for UPI ID
+const validateUPI = (value) => {
+  if (!value.includes('@')) {
+    throw new Error('UPI ID must contain "@" symbol');
+  }
+  return true;
+};
+
 // API endpoint to handle form submission
 app.post('/submitForm',
+  // Middleware for handling file uploads
   upload.fields([
     { name: 'aadharFrontImage', maxCount: 1 },
     { name: 'aadharBackImage', maxCount: 1 },
     { name: 'passportPhoto', maxCount: 1 },
     { name: 'qrCodeImage', maxCount: 1 }
   ]),
+  // Validation middleware for form fields
   [
     body('fullname').trim().notEmpty().withMessage('Fullname is required'),
     body('aadharNumber').trim().custom(validateAadhar),
     body('bankAccountNumber').trim().custom(validateBankAccount),
-    //body('upiId').trim().isEmail().withMessage('Invalid UPI ID format')
-    body('upiId').trim().custom(value => {
-      if (!value.includes('@')) {
-          throw new Error('UPI ID must contain "@" symbol');
-      }
-      return true;
-    }
-    )
-      
-  
+    body('upiId').trim().custom(validateUPI)
   ],
-  (req, res) => {
+  async (req, res) => {
     // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    // All validations passed, process the form data
+    // Destructuring form data
     const { fullname, aadharNumber, bankAccountNumber, upiId } = req.body;
     
-    // Check if aadharFrontImage is provided
-    const aadharFrontImage = req.files['aadharFrontImage'] && req.files['aadharFrontImage'].length > 0
-      ? req.files['aadharFrontImage'][0].path
-      : null;
-      
-    // Check if aadharBackImage is provided
-    const aadharBackImage = req.files['aadharBackImage'] && req.files['aadharBackImage'].length > 0
-      ? req.files['aadharBackImage'][0].path
-      : null;
-    
-    // Check if passportPhoto is provided
-    const passportPhoto = req.files['passportPhoto'] && req.files['passportPhoto'].length > 0
-      ? req.files['passportPhoto'][0].path
-      : null;
-    
-    // Check if qrCodeImage is provided
-    const qrCodeImage = req.files['qrCodeImage'] && req.files['qrCodeImage'].length > 0
-      ? req.files['qrCodeImage'][0].path
-      : null;
-
-    // Insert form data into MySQL database
+    // Check if Aadhar number or UPI ID already exists
     pool.query(
-      'INSERT INTO aadhar (fullname, aadharNumber, bankAccountNumber, upiId, aadharFrontImage, aadharBackImage, passportPhoto, qrCodeImage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [fullname, aadharNumber, bankAccountNumber, upiId, aadharFrontImage, aadharBackImage, passportPhoto, qrCodeImage],
+      'SELECT * FROM aadhar WHERE aadharNumber = ? OR upiId = ?',
+      [aadharNumber, upiId],
       (error, results) => {
         if (error) {
-          console.error('Error saving submission:', error);
-          return res.status(500).json({ error: 'Failed to save form submission' });
+          console.error('Error checking for duplicate entries:', error);
+          return res.status(500).json({ error: 'Failed to check for duplicate entries', message: error.message });
         }
-        // Respond with success message
-        res.json({ message: 'Form submitted successfully' });
+        if (results.length > 0) {
+          const existingEntry = results[0];
+          if (existingEntry.aadharNumber === aadharNumber) {
+            return res.status(400).json({ error: 'Failed to save form submission', message: 'Aadhar number is already registered' });
+          } else if (existingEntry.upiId === upiId) {
+            return res.status(400).json({ error: 'Failed to save form submission', message: 'UPI ID is already registered' });
+          }
+        }
+
+        // If no duplicate entries found, continue with inserting form data into MySQL database
+        const aadharFrontImage = req.files['aadharFrontImage'] ? req.files['aadharFrontImage'][0].path : null;
+        const aadharBackImage = req.files['aadharBackImage'] ? req.files['aadharBackImage'][0].path : null;
+        const passportPhoto = req.files['passportPhoto'] ? req.files['passportPhoto'][0].path : null;
+        const qrCodeImage = req.files['qrCodeImage'] ? req.files['qrCodeImage'][0].path : null;
+
+        // Insert form data into the 'aadhar' table
+        pool.query(
+          'INSERT INTO aadhar (fullname, aadharNumber, bankAccountNumber, upiId, aadharFrontImage, aadharBackImage, passportPhoto, qrCodeImage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [fullname, aadharNumber, bankAccountNumber, upiId, aadharFrontImage, aadharBackImage, passportPhoto, qrCodeImage],
+          (insertError, insertResults) => {
+            if (insertError) {
+              console.error('Error saving submission:', insertError);
+              return res.status(500).json({ error: 'Failed to save form submission', message: insertError.message });
+            }
+            // Respond with success message
+            res.json({ message: 'Form submitted successfully' });
+          }
+        );
       }
-    );
+    );    
   }
 );
 
