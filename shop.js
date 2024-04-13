@@ -4,7 +4,7 @@ const multer = require('multer');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3003;
+const PORT = process.env.PORT || 4001;
 
 // Create a MySQL connection pool
 const pool = mysql.createPool({
@@ -45,20 +45,18 @@ app.post('/shop', upload.none(), (req, res) => {
         return res.status(400).json({ error: 'Missing required fields in request body.' });
     }
 
-    // Check if shop category is valid
-    const validCategories = ['Bakery', 'Medicines', 'Electronics', 'Grocery', 'Cloths', 'Other'];
-    if (!validCategories.includes(category)) {
-        return res.status(400).json({ error: 'Invalid shop category.' });
-    }
-
     // Save data to the database
     const query = "INSERT INTO shop (ShopName, FullName, Category, ShopAddress, Pincode, WhatsappNumber, GoogleAddressLink, DeliveryDetails) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
     const values = [shopName, fullName, category, shopAddress, pincode, whatsappNumber, googleAddressLink, deliveryDetails];
     
     pool.query(query, values, (err, results) => {
         if (err) {
-            console.error('Error saving data to database:', err);
-            return res.status(500).json({ error: 'Internal Server Error' });
+            if (err.code === 'ER_DUP_ENTRY') {
+                return res.status(400).json({ error: 'WhatsApp number', message: ' WhatsApp number already register' });
+            } else {
+                console.error('Error saving data to database:', err);
+                return res.status(500).json({ error: 'Internal Server Error' });
+            }
         } else {
             console.log('Data saved to database successfully');
             // Send success response
